@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>单词纵横</title>
+    <link rel="stylesheet" href="./app/assets/style.css" />
+  </head>
+  <body>
+    <div id="app" class="game-shell">
+      <section id="view-home" class="view active">
+        <header class="top-header">
+          <div class="title-wrap">
+            <h1>单词纵横</h1>
+            <p>像数独一样推理的英文填词游戏</p>
+          </div>
+        </header>
+
+        <div class="home-panel">
+          <div class="difficulty-wrap">
+            <div class="label">难度选择</div>
+            <div class="segmented" id="difficulty-switch"></div>
+          </div>
+          <div class="action-row">
+            <button id="random-challenge" class="btn primary">随机挑战</button>
+            <button id="reset-progress" class="btn ghost">重置本地数据</button>
+          </div>
+          <div class="continue-wrap" id="continue-wrap" hidden>
+            <p>继续未完成游戏</p>
+            <button id="continue-game" class="btn">继续游戏</button>
+          </div>
+          <div class="theme-title">选择主题</div>
+          <div id="theme-list" class="theme-list"></div>
+        </div>
+      </section>
+
+      <section id="view-tutorial" class="view">
+        <div class="tutorial-card">
+          <div class="tutorial-eyebrow">3 步学会 · 单格单字</div>
+          <h2>玩法快速上手</h2>
+          <p class="tutorial-subtitle">跟着迷你棋盘试一次横竖交叉</p>
+          <div class="tutorial-demo" aria-label="玩法演示棋盘">
+            <div id="tutorial-board" class="tutorial-board"></div>
+            <div class="tutorial-demo-clue">
+              <span id="tutorial-direction">横向</span>
+              <strong id="tutorial-clue">A small animal that says “meow”.</strong>
+              <small id="tutorial-hint">点击格子选中整条单词</small>
+            </div>
+            <div id="tutorial-keys" class="tutorial-keys" aria-hidden="true"></div>
+          </div>
+          <div id="tutorial-steps" class="tutorial-steps"></div>
+          <div id="tutorial-progress" class="tutorial-progress" aria-label="教学进度"></div>
+          <div class="tutorial-nav">
+            <button id="tutorial-skip" class="btn ghost">跳过教学</button>
+            <button id="tutorial-next" class="btn">下一步</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-game" class="view">
+        <header class="game-header">
+          <button id="back-home" class="icon-btn">←</button>
+          <div class="game-meta">
+            <div id="game-title">主题 / 难度</div>
+            <div id="game-timer">00:00</div>
+          </div>
+          <button id="mute-toggle" class="icon-btn">🔊</button>
+        </header>
+
+        <div class="game-content">
+          <div id="board-wrap" class="board-wrap"></div>
+          <div class="hint-card">
+            <div class="hint-head">
+              <div id="active-direction">Across / 横向</div>
+              <div id="word-status"></div>
+            </div>
+            <div id="active-clue" class="clue"></div>
+            <div class="hint-actions">
+              <button id="hint-meaning" class="btn small">释义</button>
+              <button id="hint-first-letter" class="btn small">补一字母</button>
+              <button id="hint-fill-cell" class="btn small">填一格</button>
+            </div>
+            <div id="hint-message" class="hint-message"></div>
+          </div>
+
+          <div class="game-actions">
+            <button id="check-answer" class="btn primary">检查</button>
+          </div>
+
+          <label class="visually-hidden" for="letter-input">为选中的棋盘格输入字母</label>
+          <input
+            id="letter-input"
+            class="native-letter-capture"
+            type="text"
+            lang="en"
+            inputmode="text"
+            maxlength="1"
+            autocomplete="off"
+            autocapitalize="characters"
+            enterkeyhint="next"
+            spellcheck="false"
+            aria-label="为选中的棋盘格输入一个英文字母"
+          />
+        </div>
+      </section>
+
+      <section id="view-result" class="view">
+        <div class="result-wrap">
+          <h2>本局成绩</h2>
+          <div id="result-summary" class="result-summary"></div>
+          <canvas id="result-card" width="1080" height="1350" aria-label="成绩卡片"></canvas>
+          <div class="result-actions">
+            <button id="save-result" class="btn">保存成绩卡</button>
+            <button id="share-result" class="btn ghost">发布小红书</button>
+            <button id="back-home-result" class="btn">返回首页</button>
+          </div>
+          <div id="bridge-tip" class="bridge-tip" hidden>当前环境不支持分享/存图 API，已显示成绩预览。</div>
+        </div>
+      </section>
+    </div>
+    <div id="toast" class="toast" aria-live="polite" hidden></div>
+    <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
+    <script src="./app/assets/js/words.js"></script>
+    <script src="./app/assets/js/generator.js"></script>
+    <script src="./app/assets/js/main.js"></script>
+  </body>
+</html>
