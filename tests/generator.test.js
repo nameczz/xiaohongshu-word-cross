@@ -31,7 +31,7 @@ test("word bank has ten useful themed collections", () => {
 });
 
 test("600 seeded boards are valid and stay near reveal targets", { timeout: 120000 }, () => {
-  const expected = { easy: 0.5, normal: 0.35, hard: 0.2 };
+  const expected = { easy: 0.7, normal: 0.55, hard: 0.45 };
   let count = 0;
   WordBank.themes.forEach((theme, themeIndex) => {
     Object.keys(expected).forEach((difficulty, difficultyIndex) => {

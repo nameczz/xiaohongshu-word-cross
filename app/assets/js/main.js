@@ -1,9 +1,10 @@
 (() => {
   const STORAGE_KEY = "wordCrossStateV1";
+  const DEFAULT_DIFFICULTY_VERSION = 2;
   const DIFFICULTIES = [
-    { id: "easy", label: "简单", ratio: 0.5, icon: "Easy" },
-    { id: "normal", label: "普通", ratio: 0.35, icon: "Normal" },
-    { id: "hard", label: "困难", ratio: 0.2, icon: "Hard" },
+    { id: "easy", label: "简单", ratio: 0.7, icon: "Easy" },
+    { id: "normal", label: "普通", ratio: 0.55, icon: "Normal" },
+    { id: "hard", label: "困难", ratio: 0.45, icon: "Hard" },
   ];
 
   const APP_SOUND = {
@@ -13,7 +14,6 @@
 
   const views = {
     home: document.getElementById("view-home"),
-    tutorial: document.getElementById("view-tutorial"),
     game: document.getElementById("view-game"),
     result: document.getElementById("view-result"),
   };
@@ -46,29 +46,21 @@
     activeClue: document.getElementById("active-clue"),
     hintMessage: document.getElementById("hint-message"),
     checkButton: document.getElementById("check-answer"),
+    hintTrigger: document.getElementById("hint-trigger"),
+    hintActions: document.getElementById("hint-actions"),
     hintMeaning: document.getElementById("hint-meaning"),
     hintFirstLetter: document.getElementById("hint-first-letter"),
     hintFillCell: document.getElementById("hint-fill-cell"),
-    nativeInput: document.getElementById("letter-input"),
+    letterKeyboard: document.getElementById("letter-keyboard"),
   };
   const resultRefs = {
     summary: document.getElementById("result-summary"),
+    stars: document.getElementById("result-stars"),
+    context: document.getElementById("result-context"),
     canvas: document.getElementById("result-card"),
     saveButton: document.getElementById("save-result"),
-    shareButton: document.getElementById("share-result"),
     backButton: document.getElementById("back-home-result"),
     bridgeTip: document.getElementById("bridge-tip"),
-  };
-  const tutorialRefs = {
-    steps: document.getElementById("tutorial-steps"),
-    board: document.getElementById("tutorial-board"),
-    direction: document.getElementById("tutorial-direction"),
-    clue: document.getElementById("tutorial-clue"),
-    hint: document.getElementById("tutorial-hint"),
-    keys: document.getElementById("tutorial-keys"),
-    progress: document.getElementById("tutorial-progress"),
-    next: document.getElementById("tutorial-next"),
-    skip: document.getElementById("tutorial-skip"),
   };
   const toast = document.getElementById("toast");
   const confettiLayer = document.getElementById("confetti-layer");
@@ -78,11 +70,10 @@
       currentGame: null,
       finished: [],
       stats: {},
-      tutorialSeen: false,
       themeStats: {},
     },
     view: "home",
-    homeDifficulty: "normal",
+    homeDifficulty: "easy",
     game: null,
     timerId: null,
     confettiEnabled: true,
@@ -103,11 +94,12 @@
     state.storage.currentGame = parsed.currentGame || null;
     state.storage.finished = parsed.finished || [];
     state.storage.stats = parsed.stats || {};
-    state.storage.tutorialSeen = !!parsed.tutorialSeen;
     state.storage.themeStats = parsed.themeStats || {};
-    state.homeDifficulty = DIFFICULTIES.some((item) => item.id === parsed.settings?.difficulty)
-      ? parsed.settings.difficulty
-      : "normal";
+    const savedDifficulty = parsed.settings?.difficulty;
+    const hasValidDifficulty = DIFFICULTIES.some((item) => item.id === savedDifficulty);
+    const usesLegacyNormalDefault = savedDifficulty === "normal"
+      && parsed.settings?.defaultDifficultyVersion !== DEFAULT_DIFFICULTY_VERSION;
+    state.homeDifficulty = hasValidDifficulty && !usesLegacyNormalDefault ? savedDifficulty : "easy";
     APP_SOUND.enabled = parsed.settings?.soundEnabled !== false;
   }
 
@@ -116,10 +108,10 @@
       currentGame: state.storage.currentGame,
       finished: state.storage.finished,
       stats: state.storage.stats,
-      tutorialSeen: state.storage.tutorialSeen,
       themeStats: state.storage.themeStats,
       settings: {
         difficulty: state.homeDifficulty,
+        defaultDifficultyVersion: DEFAULT_DIFFICULTY_VERSION,
         soundEnabled: APP_SOUND.enabled,
       },
     };
@@ -474,6 +466,7 @@
       board,
       selected: null,
       hintStages: {},
+      wordValidation: continueData?.wordValidation || {},
       hintsUsed: continueData ? continueData.hintsUsed : 0,
       mistakes: continueData ? continueData.mistakes : 0,
       solved: false,
@@ -515,6 +508,7 @@
       puzzle: state.game.puzzle,
       board: state.game.board,
       hintStages: state.game.hintStages,
+      wordValidation: state.game.wordValidation,
       hintsUsed: state.game.hintsUsed,
       mistakes: state.game.mistakes,
       baseElapsedMs: getElapsedMs(),
@@ -621,13 +615,13 @@
           el.dataset.c = String(c);
           el.addEventListener("pointerdown", () => {
             if (baseCell.blocked) return;
+            closeHintMenu();
             const nextDir = state.game?.selected?.r === r && state.game?.selected?.c === c
               ? null
               : state.game?.selected?.dir;
             setSelected(r, c, nextDir);
             renderBoard();
             renderClueCard();
-            focusNativeInput();
           });
         }
         boardEl.appendChild(el);
@@ -642,15 +636,96 @@
     if (!placement) {
       gameRefs.activeDirection.textContent = "Across / 横向";
       gameRefs.wordStatus.textContent = "";
+      gameRefs.wordStatus.removeAttribute("data-state");
       gameRefs.activeClue.textContent = "先选择一个字母格";
+      gameRefs.hintMessage.textContent = "";
+      gameRefs.hintMessage.hidden = true;
+      gameRefs.hintTrigger.disabled = true;
+      closeHintMenu();
       return;
     }
     const direction = state.game.selected.dir === "H" ? "Across / 横向" : "Down / 纵向";
     const stage = state.game.hintStages[placement.id] || 0;
+    const validation = state.game.wordValidation?.[placement.id] || "";
     gameRefs.activeDirection.textContent = direction;
-    gameRefs.wordStatus.textContent = `${placement.answer.length} 格`;
+    gameRefs.wordStatus.textContent = validation === "correct"
+      ? `${placement.answer.length} 格 · ✓`
+      : validation === "wrong"
+        ? `${placement.answer.length} 格 · 待调整`
+        : `${placement.answer.length} 格`;
+    if (validation) {
+      gameRefs.wordStatus.dataset.state = validation;
+    } else {
+      gameRefs.wordStatus.removeAttribute("data-state");
+    }
     gameRefs.activeClue.textContent = placement.clue || "Use the crossing letters to find this word.";
-    gameRefs.hintMessage.textContent = stage >= 1 ? `中文释义：${placement.meaning}` : "卡住时可以逐级使用提示";
+    gameRefs.hintMessage.textContent = stage >= 1 ? `中文释义：${placement.meaning}` : "";
+    gameRefs.hintMessage.hidden = stage < 1;
+    gameRefs.hintTrigger.disabled = false;
+    gameRefs.hintMeaning.textContent = stage >= 1 ? "释义已显示" : "显示释义";
+  }
+
+  function clearValidationForCell(r, c) {
+    if (!state.game) return;
+    if (!state.game.wordValidation) state.game.wordValidation = {};
+    const wordIds = [...new Set(Object.values(getBoardWordIdsAt(r, c)))];
+    wordIds.forEach((wordId) => {
+      const placement = state.game.puzzle.placements[wordId];
+      if (!placement) return;
+      delete state.game.wordValidation[placement.id];
+      placement.fixed.forEach((item) => {
+        const uiCell = state.game.board[item.r]?.[item.c];
+        if (uiCell) uiCell.wrong = false;
+      });
+    });
+  }
+
+  function isPlacementFilled(placement) {
+    if (!state.game || !placement) return false;
+    return placement.fixed.every((item) => /^[A-Z]$/.test(state.game.board[item.r][item.c].value || ""));
+  }
+
+  function validateCompletedPlacement(placement, countMistake = true) {
+    if (!state.game || !placement || !isPlacementFilled(placement)) return null;
+    if (!state.game.wordValidation) state.game.wordValidation = {};
+    let hasWrongCell = false;
+    placement.fixed.forEach((item, index) => {
+      const uiCell = state.game.board[item.r][item.c];
+      const isWrong = uiCell.value !== placement.answer[index];
+      if (isWrong) hasWrongCell = true;
+      if (!uiCell.locked) uiCell.wrong = isWrong;
+    });
+    const result = hasWrongCell ? "wrong" : "correct";
+    const previous = state.game.wordValidation[placement.id];
+    state.game.wordValidation[placement.id] = result;
+    if (countMistake && result === "wrong" && previous !== "wrong") {
+      state.game.mistakes += 1;
+    }
+    return result;
+  }
+
+  function isBoardFilled() {
+    if (!state.game) return false;
+    for (let r = 0; r < state.game.puzzle.size; r += 1) {
+      for (let c = 0; c < state.game.puzzle.size; c += 1) {
+        if (state.game.puzzle.board[r][c].blocked) continue;
+        if (!/^[A-Z]$/.test(state.game.board[r][c].value || "")) return false;
+      }
+    }
+    return true;
+  }
+
+  function finishOrValidateFilledBoard() {
+    if (!isBoardFilled()) return false;
+    if (isSolved()) {
+      persistCurrentGame();
+      finishGame();
+      return true;
+    }
+    state.game.puzzle.placements.forEach((placement) => {
+      validateCompletedPlacement(placement, false);
+    });
+    return false;
   }
 
   function applyCellValue(r, c, value) {
@@ -662,14 +737,19 @@
     if (!baseCell || baseCell.blocked || cell.locked) return;
     const prev = cell.value;
     if (prev !== value) {
+      const placement = getActivePlacement();
+      const previousValidation = state.game.wordValidation?.[placement?.id] || "";
+      clearValidationForCell(r, c);
       cell.value = value;
       cell.wrong = false;
+      validateCompletedPlacement(placement, previousValidation !== "wrong");
+      if (finishOrValidateFilledBoard()) return;
+      autoMoveSelection(false);
       persistCurrentGame();
       renderBoard();
       renderClueCard();
       ensureAudio();
       playTone("ok");
-      autoMoveSelection();
     }
   }
 
@@ -681,10 +761,12 @@
     const uiCell = state.game.board[r][c];
     if (baseCell.blocked || uiCell.locked) return;
     if (uiCell.value.length > 0) {
+      clearValidationForCell(r, c);
       uiCell.value = "";
       uiCell.wrong = false;
       persistCurrentGame();
       renderBoard();
+      renderClueCard();
       return;
     }
     const placement = getActivePlacement();
@@ -698,7 +780,7 @@
     }
   }
 
-  function autoMoveSelection() {
+  function autoMoveSelection(shouldRender = true) {
     if (!state.game || !state.game.selected) return;
     const placement = getActivePlacement();
     if (!placement) return;
@@ -708,7 +790,7 @@
     if (nextIdx >= 0) {
       const item = placement.fixed[nextIdx];
       state.game.selected = { r: item.r, c: item.c, dir: state.game.selected.dir };
-      renderBoard();
+      if (shouldRender) renderBoard();
     }
   }
 
@@ -731,21 +813,13 @@
       if (!base.blocked && !ui.locked) return i;
       i += step;
     }
-    if (reverse) {
-      return -1;
-    }
-    // wrap to first editable
-    for (let j = 0; j < placement.fixed.length; j += 1) {
-      const cellRef = placement.fixed[j];
-      const ui = state.game.board[cellRef.r][cellRef.c];
-      const base = state.game.puzzle.board[cellRef.r][cellRef.c];
-      if (!base.blocked && !ui.locked) return j;
-    }
     return -1;
   }
 
   function checkCurrent() {
     if (!state.game) return;
+    resetBoardWrong();
+    state.game.wordValidation = {};
     let wrongWords = 0;
     const totalWords = state.game.puzzle.placements.length;
     for (let i = 0; i < totalWords; i += 1) {
@@ -765,11 +839,9 @@
           }
         }
       }
+      state.game.wordValidation[placement.id] = solved ? "correct" : "wrong";
       if (!solved) wrongWords += 1;
     }
-
-    persistCurrentGame();
-    renderBoard();
 
     if (wrongWords === 0) {
       finishGame();
@@ -777,9 +849,10 @@
     }
     state.game.mistakes += 1;
     persistCurrentGame();
+    renderBoard();
+    renderClueCard();
     playTone("error");
     showToast(`有 ${wrongWords} 个词暂未填对`);
-    gameRefs.hintMessage.textContent = "错误已标注，按提示继续尝试。";
   }
 
   function isSolved() {
@@ -844,84 +917,157 @@
   function renderResult(record) {
     const theme = getThemeById(record.themeId);
     const difficulty = getDifficultyById(record.difficulty);
+    const themeName = theme?.name || record.themeId;
+    resultRefs.stars.textContent = formatStars(record.stars);
+    resultRefs.stars.setAttribute("aria-label", `${record.stars} 星成绩`);
+    resultRefs.context.textContent = `${themeName} · ${difficulty.label}`;
     resultRefs.summary.innerHTML = `
-      <div><strong>主题:</strong> ${theme?.name || record.themeId}</div>
-      <div><strong>难度:</strong> ${difficulty.label}</div>
-      <div><strong>用时:</strong> ${formatTime(record.elapsedMs)}</div>
-      <div><strong>提示:</strong> ${record.hintsUsed}</div>
-      <div><strong>错次数:</strong> ${record.mistakes}</div>
-      <div><strong>星级:</strong> ${formatStars(record.stars)}</div>
+      <div class="result-metric"><span>完成用时</span><strong>${formatTime(record.elapsedMs)}</strong></div>
+      <div class="result-metric"><span>使用提示</span><strong>${record.hintsUsed}</strong></div>
+      <div class="result-metric"><span>错误尝试</span><strong>${record.mistakes}</strong></div>
     `;
+    resultRefs.bridgeTip.hidden = true;
     drawResultCard(record);
+  }
+
+  function drawRoundedRect(ctx, x, y, width, height, radius, fillStyle, strokeStyle, lineWidth = 0) {
+    const r = Math.min(radius, width / 2, height / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    ctx.lineTo(x + r, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    if (fillStyle) {
+      ctx.fillStyle = fillStyle;
+      ctx.fill();
+    }
+    if (strokeStyle && lineWidth > 0) {
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+    }
   }
 
   function drawResultCard(record) {
     const theme = getThemeById(record.themeId);
+    const difficulty = getDifficultyById(record.difficulty);
     const c = resultRefs.canvas;
     const ctx = c.getContext("2d");
     const w = c.width;
     const h = c.height;
     ctx.clearRect(0, 0, w, h);
 
-    ctx.fillStyle = "#f6ede0";
+    const colors = {
+      paper: "#f7f1e8",
+      paperLight: "#fffaf2",
+      ink: "#17324d",
+      blue: "#173a5e",
+      blueSoft: "#bdd7e7",
+      coral: "#ee6a5b",
+      mustard: "#e4b454",
+      line: "#d8ccba",
+    };
+
+    ctx.fillStyle = colors.paper;
     ctx.fillRect(0, 0, w, h);
 
-    for (let i = 0; i < 1800; i += 1) {
-      const x = Math.floor(Math.random() * w);
-      const y = Math.floor(Math.random() * h);
-      const a = Math.random() * 0.08;
-      ctx.fillStyle = `rgba(18,38,63,${a})`;
-      ctx.fillRect(x, y, 1, 1);
+    ctx.fillStyle = colors.blue;
+    ctx.fillRect(0, 0, w, 356);
+    ctx.fillStyle = colors.coral;
+    ctx.fillRect(0, 0, 18, 356);
+    ctx.save();
+    ctx.globalAlpha = 0.08;
+    ctx.strokeStyle = colors.paperLight;
+    ctx.lineWidth = 2;
+    for (let x = 500; x < 1220; x += 72) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x - 250, 356);
+      ctx.stroke();
     }
+    ctx.restore();
 
-    ctx.fillStyle = "#12263f";
-    ctx.font = "bold 54px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-    ctx.fillText("单词纵横 · 单局成绩", 60, 90);
+    drawRoundedRect(ctx, 60, 42, 232, 46, 23, colors.coral);
+    ctx.fillStyle = colors.paperLight;
+    ctx.font = "700 24px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("✓  PUZZLE COMPLETE", 176, 66);
 
-    ctx.font = "32px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-    ctx.fillText(`主题：${theme?.name || ""}`, 60, 150);
-    ctx.fillText(`难度：${getDifficultyById(record.difficulty).label}`, 60, 192);
-    ctx.fillText(`用时：${formatTime(record.elapsedMs)}`, 60, 236);
-    ctx.fillText(`提示：${record.hintsUsed}   错误：${record.mistakes}`, 60, 278);
-    ctx.fillText(`星级：${formatStars(record.stars)}`, 60, 320);
+    ctx.fillStyle = colors.mustard;
+    ctx.font = "700 43px -apple-system, BlinkMacSystemFont, 'Segoe UI Symbol', sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText(formatStars(record.stars), 1020, 68);
 
-    ctx.fillStyle = "#f5f6f7";
+    ctx.fillStyle = colors.paperLight;
+    ctx.font = "800 64px -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("单词纵横", 60, 158);
+    ctx.fillStyle = colors.blueSoft;
+    ctx.font = "500 31px -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif";
+    ctx.fillText(`${theme?.name || record.themeId}  ·  ${difficulty.label}`, 62, 220);
+
+    const metrics = [
+      ["完成用时", formatTime(record.elapsedMs)],
+      ["使用提示", String(record.hintsUsed)],
+      ["错误尝试", String(record.mistakes)],
+    ];
+    metrics.forEach(([label, value], index) => {
+      const x = 60 + index * 330;
+      drawRoundedRect(ctx, x, 270, 300, 112, 18, colors.paperLight);
+      ctx.fillStyle = colors.coral;
+      ctx.fillRect(x, 270, 8, 112);
+      ctx.fillStyle = colors.ink;
+      ctx.font = "800 39px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(value, x + 32, 311);
+      ctx.fillStyle = "#60758a";
+      ctx.font = "500 22px -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif";
+      ctx.fillText(label, x + 32, 353);
+    });
+
     const boardSize = state.game ? state.game.puzzle.size : 9;
-    const pad = 60;
-    const boardArea = 820;
-    const cellSize = Math.floor(boardArea / boardSize);
-    const sx = 60;
-    const sy = 380;
+    const boardArea = 864;
+    const cellSize = boardArea / boardSize;
+    const sx = 108;
+    const sy = 438;
     const solvedBoard = state.game ? state.game.puzzle.board : null;
 
+    drawRoundedRect(ctx, 90, 420, 900, 900, 28, colors.mustard);
+    drawRoundedRect(ctx, 100, 430, 880, 880, 21, colors.blue);
+
     for (let r = 0; r < boardSize; r += 1) {
-      for (let c = 0; c < boardSize; c += 1) {
-        const x = sx + c * cellSize;
+      for (let col = 0; col < boardSize; col += 1) {
+        const x = sx + col * cellSize;
         const y = sy + r * cellSize;
-        if (!solvedBoard || !solvedBoard[r] || !solvedBoard[r][c] || solvedBoard[r][c].blocked) {
-          ctx.fillStyle = "#1e3a5f";
-          ctx.fillRect(x, y, cellSize - 1, cellSize - 1);
+        const boardCell = solvedBoard?.[r]?.[col];
+        if (!boardCell || boardCell.blocked) {
           continue;
         }
-        ctx.strokeStyle = "#6f8aa8";
-        ctx.strokeRect(x, y, cellSize - 1, cellSize - 1);
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(x + 3, y + 3, cellSize - 7, cellSize - 7);
-        const show = solvedBoard[r][c].revealed ? solvedBoard[r][c].char : "?";
-        if (show !== "?") {
-          ctx.fillStyle = "#112942";
-          ctx.font = `${Math.floor(cellSize * 0.45)}px -apple-system, BlinkMacSystemFont, sans-serif`;
-          ctx.fillText(show, x + cellSize * 0.33, y + cellSize * 0.65);
-        } else {
-          ctx.fillStyle = "#a78f57";
-          ctx.font = `${Math.floor(cellSize * 0.18)}px -apple-system, BlinkMacSystemFont, sans-serif`;
-          ctx.fillText("?", x + cellSize * 0.42, y + cellSize * 0.58);
-        }
+        drawRoundedRect(
+          ctx,
+          x + 3,
+          y + 3,
+          cellSize - 6,
+          cellSize - 6,
+          Math.max(5, cellSize * 0.08),
+          boardCell.revealed ? colors.blueSoft : colors.paperLight,
+          "rgba(23,50,77,0.22)",
+          2,
+        );
+        ctx.fillStyle = colors.ink;
+        ctx.font = `800 ${Math.floor(cellSize * 0.46)}px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(boardCell.char, x + cellSize / 2, y + cellSize / 2 + 2);
       }
     }
-    ctx.strokeStyle = "#a27c2e";
-    ctx.lineWidth = 4;
-    ctx.strokeRect(54, 372, boardArea + 12, boardArea + 12);
   }
 
   function runConfetti() {
@@ -944,6 +1090,28 @@
         if (!state.game.board[r][c]) continue;
         state.game.board[r][c].wrong = false;
       }
+    }
+  }
+
+  function closeHintMenu(returnFocus = false) {
+    if (!gameRefs.hintActions || !gameRefs.hintTrigger) return;
+    gameRefs.hintActions.hidden = true;
+    gameRefs.hintTrigger.setAttribute("aria-expanded", "false");
+    if (returnFocus && state.view === "game") gameRefs.hintTrigger.focus();
+  }
+
+  function openHintMenu() {
+    if (!gameRefs.hintActions || !getActivePlacement()) return;
+    gameRefs.hintActions.hidden = false;
+    gameRefs.hintTrigger.setAttribute("aria-expanded", "true");
+    window.setTimeout(() => gameRefs.hintMeaning.focus(), 0);
+  }
+
+  function toggleHintMenu() {
+    if (gameRefs.hintActions.hidden) {
+      openHintMenu();
+    } else {
+      closeHintMenu(true);
     }
   }
 
@@ -989,6 +1157,7 @@
       const ui = state.game.board[item.r][item.c];
       if (base.blocked || ui.locked) continue;
       if (!ui.value) {
+        clearValidationForCell(item.r, item.c);
         ui.value = placement.answer[i];
         ui.wrong = false;
         placed = true;
@@ -998,8 +1167,11 @@
     if (placed) {
       state.game.hintStages[placement.id] = Math.max(2, state.game.hintStages[placement.id] || 0);
       state.game.hintsUsed += 1;
+      validateCompletedPlacement(placement, false);
+      if (finishOrValidateFilledBoard()) return;
       persistCurrentGame();
       renderBoard();
+      renderClueCard();
       showToast("已补充该词的一个字母");
       playTone("ok");
     } else {
@@ -1032,6 +1204,7 @@
     const answer = placement?.answer || "";
     for (let i = 0; i < placement.fixed.length; i += 1) {
       if (placement.fixed[i].r === selected.r && placement.fixed[i].c === selected.c) {
+        clearValidationForCell(selected.r, selected.c);
         ui.value = answer[i];
         ui.wrong = false;
         break;
@@ -1039,9 +1212,12 @@
     }
     state.game.hintStages[placement.id] = Math.max(3, state.game.hintStages[placement.id] || 0);
     state.game.hintsUsed += 1;
+    validateCompletedPlacement(placement, false);
+    if (finishOrValidateFilledBoard()) return;
     persistCurrentGame();
     playTone("ok");
     renderBoard();
+    renderClueCard();
     showToast("已填当前字母");
   }
 
@@ -1049,15 +1225,6 @@
     if (!state.game || !state.game.selected) return null;
     const map = getBoardWordIdsAt(state.game.selected.r, state.game.selected.c);
     return map[state.game.selected.dir];
-  }
-
-  function focusNativeInput() {
-    if (!gameRefs.nativeInput || state.view !== "game") return;
-    try {
-      gameRefs.nativeInput.focus({ preventScroll: true });
-    } catch (err) {
-      gameRefs.nativeInput.focus();
-    }
   }
 
   function enterNativeLetter(value) {
@@ -1075,29 +1242,46 @@
     applyCellValue(selected.r, selected.c, letter);
   }
 
-  function setupNativeInput() {
-    const input = gameRefs.nativeInput;
-    if (!input) return;
-
-    input.addEventListener("input", (event) => {
-      if (event.isComposing) return;
-      enterNativeLetter(input.value);
-      input.value = "";
-    });
-    input.addEventListener("compositionend", () => {
-      enterNativeLetter(input.value);
-      input.value = "";
-    });
-    input.addEventListener("keydown", (event) => {
-      if (!state.game || state.game.solved) return;
-      if (event.key === "Backspace" && !input.value) {
-        event.preventDefault();
-        deleteCell();
-      } else if (event.key === "Enter") {
-        event.preventDefault();
-        autoMoveSelection();
+  function renderLetterKeyboard() {
+    if (!gameRefs.letterKeyboard) return;
+    gameRefs.letterKeyboard.replaceChildren();
+    ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"].forEach((letters, rowIndex) => {
+      const row = document.createElement("div");
+      row.className = "keyboard-row";
+      letters.split("").forEach((letter) => {
+        const key = document.createElement("button");
+        key.type = "button";
+        key.className = "letter-key";
+        key.textContent = letter;
+        key.dataset.key = letter;
+        key.setAttribute("aria-label", `输入字母 ${letter}`);
+        key.addEventListener("click", () => enterNativeLetter(letter));
+        row.appendChild(key);
+      });
+      if (rowIndex === 2) {
+        const deleteKey = document.createElement("button");
+        deleteKey.type = "button";
+        deleteKey.className = "letter-key delete-key";
+        deleteKey.textContent = "⌫";
+        deleteKey.dataset.key = "Backspace";
+        deleteKey.setAttribute("aria-label", "删除当前字母");
+        deleteKey.addEventListener("click", deleteCell);
+        row.appendChild(deleteKey);
       }
+      gameRefs.letterKeyboard.appendChild(row);
     });
+  }
+
+  function flashKeyboardKey(value) {
+    const keyName = value === "Backspace" || value === "Delete" ? "Backspace" : value.toUpperCase();
+    const key = gameRefs.letterKeyboard?.querySelector(`[data-key="${keyName}"]`);
+    if (!key) return;
+    key.classList.add("pressed");
+    clearTimeout(key.pressTimer);
+    key.pressTimer = window.setTimeout(() => key.classList.remove("pressed"), 100);
+  }
+
+  function setupViewportSync() {
     const visualViewport = window.visualViewport;
     const syncViewport = () => {
       const height = visualViewport ? visualViewport.height : window.innerHeight;
@@ -1108,150 +1292,86 @@
     visualViewport?.addEventListener("scroll", syncViewport);
   }
 
-  async function saveCardToAlbum() {
-    const card = resultRefs.canvas;
-    const dataUrl = card.toDataURL("image/png");
-    if (!hasBridgeMethod("writeTempFile") || !hasBridgeMethod("saveImageToPhotosAlbum")) {
-      resultRefs.bridgeTip.hidden = false;
-      showToast("当前环境无法直接写入相册，已显示图片预览");
-      return;
-    }
-    try {
-      const mini = window.xhs.miniTool;
-      const writeResult = await mini.writeTempFile({ data: dataUrl });
-      const filePath = writeResult.filePath || dataUrl;
-      await mini.saveImageToPhotosAlbum({ filePath });
-      showToast("已保存到相册");
-    } catch (err) {
-      console.error(err);
-      showToast("保存失败");
-      resultRefs.bridgeTip.hidden = false;
-    }
-  }
+  function downloadCanvasPng(canvas, filename) {
+    return new Promise((resolve, reject) => {
+      const triggerDownload = (href, revoke) => {
+        try {
+          const link = document.createElement("a");
+          link.href = href;
+          link.download = filename;
+          link.rel = "noopener";
+          link.style.display = "none";
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          if (revoke) window.setTimeout(revoke, 1000);
+          resolve();
+        } catch (err) {
+          if (revoke) revoke();
+          reject(err);
+        }
+      };
 
-  async function shareCardToNote() {
-    const card = resultRefs.canvas;
-    const dataUrl = card.toDataURL("image/png");
-    if (!hasBridgeMethod("postNote")) {
-      resultRefs.bridgeTip.hidden = false;
-      showToast("当前环境不支持发笔记");
-      return;
-    }
-    try {
-      const mini = window.xhs.miniTool;
-      await mini.postNote({
-        pageType: "photo_publish",
-        title: "单词纵横战绩",
-        content: "我完成了今天的单词纵横挑战！",
-        mediaInfo: {
-          image_resources: [{ url: dataUrl }],
-        },
-      });
-      showToast("已打开发布页面");
-    } catch (err) {
-      console.error(err);
-      resultRefs.bridgeTip.hidden = false;
-      showToast("发布失败，请在发布页重试");
-    }
-  }
-
-  function openTutorial() {
-    const steps = [
-      "点击白色格子，会高亮它所在的整条横词或竖词。",
-      "每格只填一个字母；用手机键盘输入后，会自动跳到这条词的下一个空格。",
-      "卡住时按顺序使用提示。交叉格的同一个字母会同时帮助两条词。",
-    ];
-    const demoStates = [
-      {
-        direction: "横向",
-        clue: "A small animal that says “meow”.",
-        hint: "点击珊瑚色格子，选中整条 CAT",
-        selected: "1,0",
-        highlight: ["1,0", "1,1", "1,2"],
-        values: { "0,1": "M", "1,1": "A" },
-        keys: ["点击格子", "打开手机键盘"],
-        activeKey: "打开手机键盘",
-      },
-      {
-        direction: "横向",
-        clue: "A small animal that says “meow”.",
-        hint: "手机键盘填入 C 后，光标越过已知的 A，自动来到 T",
-        selected: "1,2",
-        highlight: ["1,0", "1,1", "1,2"],
-        values: { "0,1": "M", "1,0": "C", "1,1": "A" },
-        keys: ["手机键盘", "输入 C", "→ T"],
-        activeKey: "输入 C",
-      },
-      {
-        direction: "纵向",
-        clue: "A drawing that shows where places are.",
-        hint: "中文释义：地图 · 交叉字母 A 已经自动共享",
-        selected: "2,1",
-        highlight: ["0,1", "1,1", "2,1"],
-        values: { "0,1": "M", "1,0": "C", "1,1": "A", "1,2": "T" },
-        keys: ["释义", "补一字母", "填一格"],
-        activeKey: "释义",
-      },
-    ];
-    let idx = 0;
-
-    function renderDemo() {
-      const demo = demoStates[idx];
-      tutorialRefs.board.replaceChildren();
-      for (let row = 0; row < 3; row += 1) {
-        for (let col = 0; col < 3; col += 1) {
-          const coord = `${row},${col}`;
-          const active = coord === "0,1" || coord === "1,0" || coord === "1,1" || coord === "1,2" || coord === "2,1";
-          const cell = document.createElement("div");
-          cell.className = active ? "tutorial-cell playable" : "tutorial-cell blocked";
-          if (demo.highlight.includes(coord)) cell.classList.add("highlighted");
-          if (demo.selected === coord) cell.classList.add("selected");
-          cell.textContent = demo.values[coord] || "";
-          tutorialRefs.board.appendChild(cell);
+      const urlApi = window.URL || window.webkitURL;
+      if (typeof canvas.toBlob === "function" && urlApi?.createObjectURL) {
+        try {
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              reject(new Error("PNG export returned no data"));
+              return;
+            }
+            const objectUrl = urlApi.createObjectURL(blob);
+            triggerDownload(objectUrl, () => urlApi.revokeObjectURL(objectUrl));
+          }, "image/png");
+          return;
+        } catch (err) {
+          // Fall through to the data URL path for older embedded browsers.
         }
       }
-      tutorialRefs.direction.textContent = demo.direction;
-      tutorialRefs.clue.textContent = demo.clue;
-      tutorialRefs.hint.textContent = demo.hint;
-      tutorialRefs.keys.replaceChildren();
-      demo.keys.forEach((label) => {
-        const key = document.createElement("span");
-        key.textContent = label;
-        if (label === demo.activeKey) key.classList.add("active");
-        tutorialRefs.keys.appendChild(key);
-      });
-      tutorialRefs.progress.replaceChildren();
-      demoStates.forEach((_, dotIndex) => {
-        const dot = document.createElement("span");
-        if (dotIndex === idx) dot.classList.add("active");
-        tutorialRefs.progress.appendChild(dot);
-      });
-    }
 
-    function renderStep() {
-      tutorialRefs.steps.textContent = steps[idx];
-      tutorialRefs.next.textContent = idx === steps.length - 1 ? "开始游戏" : "下一步";
-      renderDemo();
-    }
-    renderStep();
-    tutorialRefs.next.addEventListener("pointerdown", () => {
-      idx += 1;
-      if (idx >= steps.length) {
-        state.storage.tutorialSeen = true;
-        writeStorage();
-        switchView("home");
-        renderHome();
-        return;
+      try {
+        triggerDownload(canvas.toDataURL("image/png"));
+      } catch (err) {
+        reject(err);
       }
-      renderStep();
     });
-    tutorialRefs.skip.addEventListener("pointerdown", () => {
-      state.storage.tutorialSeen = true;
-      writeStorage();
-      switchView("home");
-      renderHome();
-    }, { once: true });
-    switchView("tutorial");
+  }
+
+  async function saveCardToAlbum() {
+    const card = resultRefs.canvas;
+    const latestFinished = state.storage.finished[state.storage.finished.length - 1];
+    const resultRecord = state.game?.solvedResult || latestFinished;
+    const completedAt = resultRecord?.completedAt || Date.now();
+    const date = new Date(completedAt).toISOString().slice(0, 10).replace(/-/g, "");
+    const themeId = resultRecord?.themeId || "daily";
+    const filename = `word-cross-${themeId}-${date}.png`;
+    const canSaveToAlbum = hasBridgeMethod("writeTempFile") && hasBridgeMethod("saveImageToPhotosAlbum");
+    resultRefs.bridgeTip.hidden = true;
+    resultRefs.saveButton.disabled = true;
+    resultRefs.saveButton.setAttribute("aria-busy", "true");
+    try {
+      if (canSaveToAlbum) {
+        const dataUrl = card.toDataURL("image/png");
+        const mini = window.xhs.miniTool;
+        const writeResult = await mini.writeTempFile({ data: dataUrl });
+        const filePath = writeResult.filePath || dataUrl;
+        await mini.saveImageToPhotosAlbum({ filePath });
+        showToast("已保存到相册");
+      } else {
+        await downloadCanvasPng(card, filename);
+        showToast("已下载成绩卡");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast(canSaveToAlbum ? "保存到相册失败，请重试" : "下载失败，请重试");
+      resultRefs.bridgeTip.textContent = canSaveToAlbum
+        ? "未能保存到相册，请检查照片权限后重试。"
+        : "下载未能开始，可以长按上方成绩卡图片保存。";
+      resultRefs.bridgeTip.hidden = false;
+    } finally {
+      resultRefs.saveButton.disabled = false;
+      resultRefs.saveButton.removeAttribute("aria-busy");
+    }
   }
 
   function resumeGameFromStorage() {
@@ -1269,6 +1389,7 @@
     }
     state.game.lastTickMs = Date.now();
     if (!state.game.hintStages) state.game.hintStages = {};
+    if (!state.game.wordValidation) state.game.wordValidation = {};
     if (!state.game.puzzle) {
       clearCurrentGame();
       showToast("存档数据异常，已清理");
@@ -1348,12 +1469,44 @@
       ) {
         closeDifficultyMenu();
       }
+      if (
+        !gameRefs.hintActions.hidden &&
+        !gameRefs.hintActions.contains(event.target) &&
+        !gameRefs.hintTrigger.contains(event.target)
+      ) {
+        closeHintMenu();
+      }
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !settingsRefs.overlay.hidden) closeSettings();
+      if (event.key === "Escape" && !gameRefs.hintActions.hidden) {
+        event.preventDefault();
+        closeHintMenu(true);
+      }
+      if (
+        state.view === "game" &&
+        state.game &&
+        !state.game.solved &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey
+      ) {
+        if (/^[a-z]$/i.test(event.key)) {
+          event.preventDefault();
+          if (event.repeat) return;
+          closeHintMenu();
+          enterNativeLetter(event.key);
+          flashKeyboardKey(event.key);
+        } else if (event.key === "Backspace" || event.key === "Delete") {
+          event.preventDefault();
+          deleteCell();
+          flashKeyboardKey(event.key);
+        }
+      }
     });
 
-    gameRefs.backHome.addEventListener("pointerdown", () => {
+    gameRefs.backHome.addEventListener("click", () => {
+      closeHintMenu();
       if (state.game) {
         persistCurrentGame();
       }
@@ -1361,24 +1514,44 @@
       renderHome();
     });
 
-    gameRefs.checkButton.addEventListener("pointerdown", checkCurrent);
+    gameRefs.checkButton.addEventListener("click", () => {
+      closeHintMenu();
+      checkCurrent();
+    });
 
-    gameRefs.hintMeaning.addEventListener("pointerdown", () => {
+    gameRefs.hintTrigger.addEventListener("click", toggleHintMenu);
+    gameRefs.hintActions.addEventListener("keydown", (event) => {
+      const items = [gameRefs.hintMeaning, gameRefs.hintFirstLetter, gameRefs.hintFillCell];
+      const current = items.indexOf(document.activeElement);
+      let next = current;
+      if (event.key === "ArrowDown") next = (current + 1 + items.length) % items.length;
+      if (event.key === "ArrowUp") next = (current - 1 + items.length) % items.length;
+      if (event.key === "Home") next = 0;
+      if (event.key === "End") next = items.length - 1;
+      if (next !== current) {
+        event.preventDefault();
+        items[next].focus();
+      }
+    });
+
+    gameRefs.hintMeaning.addEventListener("click", () => {
       if (!state.game || state.game.solved) return;
+      closeHintMenu();
       useHintMeaning();
     });
-    gameRefs.hintFirstLetter.addEventListener("pointerdown", () => {
+    gameRefs.hintFirstLetter.addEventListener("click", () => {
       if (!state.game || state.game.solved) return;
+      closeHintMenu();
       useHintFirstLetter();
     });
-    gameRefs.hintFillCell.addEventListener("pointerdown", () => {
+    gameRefs.hintFillCell.addEventListener("click", () => {
       if (!state.game || state.game.solved) return;
+      closeHintMenu();
       useHintFillCell();
     });
 
-    resultRefs.saveButton.addEventListener("pointerdown", saveCardToAlbum);
-    resultRefs.shareButton.addEventListener("pointerdown", shareCardToNote);
-    resultRefs.backButton.addEventListener("pointerdown", () => {
+    resultRefs.saveButton.addEventListener("click", saveCardToAlbum);
+    resultRefs.backButton.addEventListener("click", () => {
       renderHome();
     });
 
@@ -1400,12 +1573,9 @@
     state.wordBank = window.WordBank.themes;
     readStorage();
     renderHome();
-    setupNativeInput();
+    renderLetterKeyboard();
+    setupViewportSync();
     bindEvents();
-
-    if (!state.storage.tutorialSeen) {
-      openTutorial();
-    }
   }
 
   init();

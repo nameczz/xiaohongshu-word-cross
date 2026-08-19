@@ -5,7 +5,7 @@
     H: { dr: 0, dc: 1, opposite: "V" },
     V: { dr: 1, dc: 0, opposite: "H" },
   };
-  const REVEAL_RATIOS = { easy: 0.5, normal: 0.35, hard: 0.2 };
+  const REVEAL_RATIOS = { easy: 0.7, normal: 0.55, hard: 0.45 };
 
   function clamp(min, max, value) {
     return Math.max(min, Math.min(max, value));
