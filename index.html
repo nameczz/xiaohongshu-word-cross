@@ -15,24 +15,50 @@
         <header class="top-header">
           <div class="title-wrap">
             <h1>单词纵横</h1>
-            <p>像数独一样推理的英文填词游戏</p>
+            <p>每天一盘，交叉记住英文单词</p>
           </div>
+          <button id="open-settings" class="settings-trigger" type="button" aria-label="打开设置" aria-expanded="false">
+            <span aria-hidden="true">⚙</span>
+          </button>
         </header>
 
         <div class="home-panel">
-          <div class="difficulty-wrap">
-            <div class="label">难度选择</div>
-            <div class="segmented" id="difficulty-switch"></div>
+          <div class="home-toolbar">
+            <div>
+              <div class="home-kicker">今日练习</div>
+              <h2>选一个主题开局</h2>
+            </div>
+            <div class="difficulty-wrap">
+              <button id="difficulty-trigger" class="difficulty-trigger" type="button" aria-expanded="false" aria-controls="difficulty-switch">
+                <span id="difficulty-label">普通</span><span aria-hidden="true">⌄</span>
+              </button>
+              <div class="difficulty-menu" id="difficulty-switch" hidden></div>
+            </div>
           </div>
-          <div class="action-row">
-            <button id="random-challenge" class="btn primary">随机挑战</button>
-            <button id="reset-progress" class="btn ghost">重置本地数据</button>
+
+          <button id="continue-game" class="continue-card" type="button" hidden>
+            <span class="continue-copy">
+              <span class="card-eyebrow">继续上局</span>
+              <strong id="continue-title">日常生活 · 普通</strong>
+              <span id="continue-progress">已填 0 / 0 格</span>
+            </span>
+            <span class="continue-arrow" aria-hidden="true">→</span>
+          </button>
+
+          <button id="random-challenge" class="random-card" type="button">
+            <span class="random-letters" aria-hidden="true"><i>W</i><i>O</i><i>W</i></span>
+            <span class="random-copy">
+              <span class="card-eyebrow">不知道选什么？</span>
+              <strong>随机挑战</strong>
+              <span id="random-subtitle">从 10 个主题里抽一局</span>
+            </span>
+            <span class="random-arrow" aria-hidden="true">↗</span>
+          </button>
+
+          <div class="theme-title">
+            <span>主题词库</span>
+            <small>点击卡片直接开始</small>
           </div>
-          <div class="continue-wrap" id="continue-wrap" hidden>
-            <p>继续未完成游戏</p>
-            <button id="continue-game" class="btn">继续游戏</button>
-          </div>
-          <div class="theme-title">选择主题</div>
           <div id="theme-list" class="theme-list"></div>
         </div>
       </section>
@@ -67,7 +93,7 @@
             <div id="game-title">主题 / 难度</div>
             <div id="game-timer">00:00</div>
           </div>
-          <button id="mute-toggle" class="icon-btn">🔊</button>
+          <span class="game-header-spacer" aria-hidden="true"></span>
         </header>
 
         <div class="game-content">
@@ -119,6 +145,31 @@
           </div>
           <div id="bridge-tip" class="bridge-tip" hidden>当前环境不支持分享/存图 API，已显示成绩预览。</div>
         </div>
+      </section>
+    </div>
+    <div id="settings-overlay" class="settings-overlay" hidden>
+      <section class="settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="settings-head">
+          <div>
+            <span class="card-eyebrow">偏好设置</span>
+            <h2 id="settings-title">让练习更顺手</h2>
+          </div>
+          <button id="close-settings" class="settings-close" type="button" aria-label="关闭设置">×</button>
+        </div>
+        <button id="sound-toggle" class="setting-row" type="button" aria-pressed="true">
+          <span>
+            <strong>游戏音效</strong>
+            <small>输入与完成时播放轻提示音</small>
+          </span>
+          <span id="sound-state" class="toggle-pill" aria-hidden="true"><i></i></span>
+        </button>
+        <button id="reset-progress" class="setting-row danger" type="button">
+          <span>
+            <strong>重置学习记录</strong>
+            <small>清除存档、星级和最佳用时</small>
+          </span>
+          <span aria-hidden="true">→</span>
+        </button>
       </section>
     </div>
     <div id="toast" class="toast" aria-live="polite" hidden></div>

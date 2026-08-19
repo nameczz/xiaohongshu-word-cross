@@ -20,14 +20,24 @@
   const homeRefs = {
     themeList: document.getElementById("theme-list"),
     difficultySwitch: document.getElementById("difficulty-switch"),
+    difficultyTrigger: document.getElementById("difficulty-trigger"),
+    difficultyLabel: document.getElementById("difficulty-label"),
     randomButton: document.getElementById("random-challenge"),
+    randomSubtitle: document.getElementById("random-subtitle"),
     resetButton: document.getElementById("reset-progress"),
-    continueWrap: document.getElementById("continue-wrap"),
     continueButton: document.getElementById("continue-game"),
+    continueTitle: document.getElementById("continue-title"),
+    continueProgress: document.getElementById("continue-progress"),
+    settingsButton: document.getElementById("open-settings"),
+  };
+  const settingsRefs = {
+    overlay: document.getElementById("settings-overlay"),
+    closeButton: document.getElementById("close-settings"),
+    soundButton: document.getElementById("sound-toggle"),
+    soundState: document.getElementById("sound-state"),
   };
   const gameRefs = {
     backHome: document.getElementById("back-home"),
-    muteToggle: document.getElementById("mute-toggle"),
     gameTitle: document.getElementById("game-title"),
     timer: document.getElementById("game-timer"),
     boardWrap: document.getElementById("board-wrap"),
@@ -69,6 +79,7 @@
       finished: [],
       stats: {},
       tutorialSeen: false,
+      themeStats: {},
     },
     view: "home",
     homeDifficulty: "normal",
@@ -94,6 +105,10 @@
     state.storage.stats = parsed.stats || {};
     state.storage.tutorialSeen = !!parsed.tutorialSeen;
     state.storage.themeStats = parsed.themeStats || {};
+    state.homeDifficulty = DIFFICULTIES.some((item) => item.id === parsed.settings?.difficulty)
+      ? parsed.settings.difficulty
+      : "normal";
+    APP_SOUND.enabled = parsed.settings?.soundEnabled !== false;
   }
 
   function writeStorage() {
@@ -103,6 +118,10 @@
       stats: state.storage.stats,
       tutorialSeen: state.storage.tutorialSeen,
       themeStats: state.storage.themeStats,
+      settings: {
+        difficulty: state.homeDifficulty,
+        soundEnabled: APP_SOUND.enabled,
+      },
     };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -229,19 +248,39 @@
   }
 
   function renderDifficultySwitch() {
-    homeRefs.difficultySwitch.innerHTML = "";
+    const selected = getDifficultyById(state.homeDifficulty);
+    homeRefs.difficultyLabel.textContent = selected.label;
+    homeRefs.difficultySwitch.replaceChildren();
     DIFFICULTIES.forEach((item) => {
       const btn = document.createElement("button");
-      btn.className = "seg-btn";
-      btn.textContent = item.label;
-      if (item.id === state.homeDifficulty) btn.classList.add("active");
-      btn.addEventListener("pointerdown", () => {
+      btn.type = "button";
+      btn.className = "difficulty-option";
+      btn.innerHTML = `<span>${item.label}</span><small>${item.id === "easy" ? "留白更少" : item.id === "hard" ? "留白更多" : "均衡提示"}</small>`;
+      btn.setAttribute("aria-pressed", String(item.id === state.homeDifficulty));
+      if (item.id === state.homeDifficulty) {
+        btn.classList.add("active");
+        btn.insertAdjacentHTML("beforeend", '<b aria-hidden="true">✓</b>');
+      }
+      btn.addEventListener("click", () => {
         state.homeDifficulty = item.id;
+        writeStorage();
+        closeDifficultyMenu();
         renderDifficultySwitch();
         renderThemeCards();
+        renderRandomCard();
       });
       homeRefs.difficultySwitch.appendChild(btn);
     });
+  }
+
+  function closeDifficultyMenu() {
+    homeRefs.difficultySwitch.hidden = true;
+    homeRefs.difficultyTrigger.setAttribute("aria-expanded", "false");
+  }
+
+  function renderRandomCard() {
+    const difficulty = getDifficultyById(state.homeDifficulty);
+    homeRefs.randomSubtitle.textContent = `${difficulty.label}难度 · 从 ${state.wordBank.length} 个主题里抽一局`;
   }
 
   function formatStars(stars) {
@@ -268,43 +307,97 @@
   }
 
   function renderThemeCards() {
-    homeRefs.themeList.innerHTML = "";
-    state.wordBank.forEach((theme) => {
-      const item = document.createElement("div");
-      item.className = "theme-item";
+    homeRefs.themeList.replaceChildren();
+    state.wordBank.forEach((theme, index) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = `theme-item theme-tone-${(index % 5) + 1}`;
+      item.setAttribute("aria-label", `开始${theme.name}主题`);
 
-      const head = document.createElement("div");
-      head.className = "theme-head";
-      const title = document.createElement("h3");
-      title.textContent = `${theme.icon || "◇"} ${theme.name}`;
-      const count = document.createElement("div");
-      count.className = "theme-stats";
+      const artWrap = document.createElement("span");
+      artWrap.className = "theme-art-wrap";
+      const art = document.createElement("img");
+      art.className = "theme-art";
+      art.src = `./app/assets/images/themes/${theme.id}.png`;
+      art.alt = "";
+      art.width = 256;
+      art.height = 256;
+      artWrap.appendChild(art);
+
+      const copy = document.createElement("span");
+      copy.className = "theme-copy";
+      const title = document.createElement("strong");
+      title.textContent = theme.name;
+      const meta = document.createElement("span");
+      meta.className = "theme-stats";
       const difficulty = getDifficultyById(state.homeDifficulty);
       const stats = state.storage.themeStats?.[theme.id]?.[difficulty.id];
-      const best = stats ? `${formatStars(stats.bestStars || 0)} ${stats.bestTimeMs ? formatTime(stats.bestTimeMs) : "--:--"}` : "尚未通关";
-      count.textContent = `进度: ${best}`;
-      head.appendChild(title);
-      head.appendChild(count);
+      meta.textContent = stats
+        ? `${formatStars(stats.bestStars || 0)} · ${stats.bestTimeMs ? formatTime(stats.bestTimeMs) : "已通关"}`
+        : `${difficulty.label} · 未挑战`;
+      copy.appendChild(title);
+      copy.appendChild(meta);
 
-      const startBtn = document.createElement("button");
-      startBtn.className = "btn primary";
-      startBtn.textContent = "开始此主题";
-      startBtn.addEventListener("pointerdown", () => startNewGame(theme.id));
+      const arrow = document.createElement("span");
+      arrow.className = "theme-arrow";
+      arrow.setAttribute("aria-hidden", "true");
+      arrow.textContent = "↗";
 
-      item.appendChild(head);
-      item.appendChild(startBtn);
+      const tiles = document.createElement("span");
+      tiles.className = "theme-letter-tiles";
+      tiles.setAttribute("aria-hidden", "true");
+      theme.id.slice(0, 2).toUpperCase().split("").forEach((letter) => {
+        const tile = document.createElement("i");
+        tile.textContent = letter;
+        tiles.appendChild(tile);
+      });
+
+      item.appendChild(artWrap);
+      item.appendChild(copy);
+      item.appendChild(arrow);
+      item.appendChild(tiles);
+      item.addEventListener("click", () => startNewGame(theme.id));
       homeRefs.themeList.appendChild(item);
     });
+  }
+
+  function getContinueProgress(current) {
+    if (!current?.puzzle?.board || !current?.board) return { filled: 0, total: 0 };
+    let filled = 0;
+    let total = 0;
+    current.puzzle.board.forEach((row, r) => {
+      row.forEach((cell, c) => {
+        if (cell.blocked) return;
+        total += 1;
+        if (/^[A-Z]$/.test(current.board[r]?.[c]?.value || "")) filled += 1;
+      });
+    });
+    return { filled, total };
+  }
+
+  function renderContinueCard() {
+    const current = state.storage.currentGame;
+    homeRefs.continueButton.hidden = !current;
+    if (!current) return;
+    const theme = getThemeById(current.themeId);
+    const difficulty = getDifficultyById(current.difficulty);
+    const progress = getContinueProgress(current);
+    homeRefs.continueTitle.textContent = `${theme?.name || "未完成棋盘"} · ${difficulty.label}`;
+    homeRefs.continueProgress.textContent = `已填 ${progress.filled} / ${progress.total} 格`;
+  }
+
+  function renderSoundSetting() {
+    settingsRefs.soundButton.setAttribute("aria-pressed", String(APP_SOUND.enabled));
+    settingsRefs.soundState.classList.toggle("active", APP_SOUND.enabled);
   }
 
   function renderHome() {
     renderDifficultySwitch();
     renderThemeCards();
-    if (state.storage.currentGame) {
-      homeRefs.continueWrap.hidden = false;
-    } else {
-      homeRefs.continueWrap.hidden = true;
-    }
+    renderRandomCard();
+    renderContinueCard();
+    renderSoundSetting();
+    closeDifficultyMenu();
     switchView("home");
   }
 
@@ -1194,23 +1287,71 @@
     switchView("game");
   }
 
+  function openSettings() {
+    closeDifficultyMenu();
+    settingsRefs.overlay.hidden = false;
+    homeRefs.settingsButton.setAttribute("aria-expanded", "true");
+    renderSoundSetting();
+    window.setTimeout(() => settingsRefs.closeButton.focus(), 0);
+  }
+
+  function closeSettings() {
+    settingsRefs.overlay.hidden = true;
+    homeRefs.settingsButton.setAttribute("aria-expanded", "false");
+    if (state.view === "home") homeRefs.settingsButton.focus();
+  }
+
   function bindEvents() {
-    homeRefs.randomButton.addEventListener("pointerdown", () => {
+    homeRefs.randomButton.addEventListener("click", () => {
       const theme = randomTheme();
       if (theme) startNewGame(theme.id);
     });
 
-    homeRefs.resetButton.addEventListener("pointerdown", () => {
+    homeRefs.resetButton.addEventListener("click", () => {
       if (!window.confirm("确定清空所有本地进度吗？")) return;
       localStorage.removeItem(STORAGE_KEY);
       readStorage();
       state.storage.currentGame = null;
       state.storage.themeStats = {};
+      closeSettings();
       renderHome();
       showToast("本地数据已重置");
     });
 
-    homeRefs.continueButton.addEventListener("pointerdown", resumeGameFromStorage);
+    homeRefs.continueButton.addEventListener("click", resumeGameFromStorage);
+
+    homeRefs.difficultyTrigger.addEventListener("click", () => {
+      const shouldOpen = homeRefs.difficultySwitch.hidden;
+      homeRefs.difficultySwitch.hidden = !shouldOpen;
+      homeRefs.difficultyTrigger.setAttribute("aria-expanded", String(shouldOpen));
+    });
+
+    homeRefs.settingsButton.addEventListener("click", openSettings);
+    settingsRefs.closeButton.addEventListener("click", closeSettings);
+    settingsRefs.overlay.addEventListener("click", (event) => {
+      if (event.target === settingsRefs.overlay) closeSettings();
+    });
+    settingsRefs.soundButton.addEventListener("click", () => {
+      APP_SOUND.enabled = !APP_SOUND.enabled;
+      if (APP_SOUND.enabled) ensureAudio();
+      writeStorage();
+      renderSoundSetting();
+      playTone("ok");
+      showToast(APP_SOUND.enabled ? "音效已开启" : "音效已关闭");
+    });
+
+    document.addEventListener("click", (event) => {
+      if (
+        !homeRefs.difficultySwitch.hidden &&
+        !homeRefs.difficultySwitch.contains(event.target) &&
+        !homeRefs.difficultyTrigger.contains(event.target)
+      ) {
+        closeDifficultyMenu();
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !settingsRefs.overlay.hidden) closeSettings();
+    });
 
     gameRefs.backHome.addEventListener("pointerdown", () => {
       if (state.game) {
@@ -1218,12 +1359,6 @@
       }
       if (state.timerId) clearInterval(state.timerId);
       renderHome();
-    });
-
-    gameRefs.muteToggle.addEventListener("pointerdown", () => {
-      APP_SOUND.enabled = !APP_SOUND.enabled;
-      gameRefs.muteToggle.textContent = APP_SOUND.enabled ? "🔊" : "🔈";
-      showToast(APP_SOUND.enabled ? "音效已开启" : "音效已关闭");
     });
 
     gameRefs.checkButton.addEventListener("pointerdown", checkCurrent);
@@ -1270,11 +1405,6 @@
 
     if (!state.storage.tutorialSeen) {
       openTutorial();
-      return;
-    }
-
-    if (state.storage.currentGame) {
-      resumeGameFromStorage();
     }
   }
 
